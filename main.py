@@ -10,7 +10,14 @@ API_ID = 32448035
 API_HASH = "0f1d487ae1c82955576fd8d0a23cdec0"
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-TARGET_CHANNELS = ["TOSHKENT_IJARAGA_UYLAR_MAKLERSIZ"]
+# 5 ta ko'rsatilgan kanal ro'yxati
+TARGET_CHANNELS = [
+    "Kvartira_Toshkent_Arenda_Makler",
+    "dil85uyuz",
+    "TOSHKENT_IJARAGA_UYLAR_MAKLERSIZ",
+    "Toshkent_ijara_sotuv",
+    "Toshkent_Kvartira_Arenda_Makler",
+]
 
 # 2. Qidiruv va filtr parametrlari
 MIN_PRICE = 350
@@ -48,7 +55,7 @@ LOCATION_KEYWORDS = [
     "alisher navoiy",
     "алишер навои",
     "sebzor",
-    "себзор",
+    "себzor",
     "jangoh",
     "жангох",
     "ts-14",
@@ -67,6 +74,27 @@ ROOM_PATTERNS = [
     r"\b2/[-0-9/]+\b",
 ]
 
+# Sotuv e'lonlarini chiqarib tashlash (Faqat ijara kerak)
+SALE_KEYWORDS = [
+    r"\bsotiladi\b",
+    r"\bsotuv\b",
+    r"\bпродам\b",
+    r"\bпродается\b",
+    r"\bпродаётся\b",
+    r"\bпродажа\b",
+]
+
+RENT_KEYWORDS = [
+    r"\bijara\b",
+    r"\barenda\b",
+    r"\bijaraga\b",
+    r"\bаренда\b",
+    r"\bсдаётся\b",
+    r"\bсдается\b",
+    r"\bсдам\b",
+]
+
+# Qizlarga mo'ljallangan e'lonlarni chiqarib tashlash
 GIRLS_ONLY_KEYWORDS = [
     r"faqat\s+qizlar",
     r"talaba\s+qiz",
@@ -100,6 +128,17 @@ BOYS_KEYWORDS = [
     r"\bдля парней\b",
     r"\bмальчик(ам|ов)\b",
 ]
+
+
+def check_is_rental(text: str) -> bool:
+  t_lower = text.lower()
+  has_sale = any(re.search(p, t_lower) for p in SALE_KEYWORDS)
+  has_rent = any(re.search(p, t_lower) for p in RENT_KEYWORDS)
+  if has_sale and not has_rent:
+    return False
+  if "kvartira sotiladi" in t_lower or "uy sotiladi" in t_lower:
+    return False
+  return True
 
 
 def check_is_girls_only(text: str) -> bool:
@@ -156,19 +195,31 @@ def check_location(text: str) -> bool:
 def is_matching_apartment(text: str) -> tuple[bool, str, str]:
   if not text:
     return False, "Matn yo'q", ""
+  # 1. Sotuv e'loni bo'lsa darhol rad etish (faqat ijara kerak)
+  if not check_is_rental(text):
+    return False, "Sotuv e'loni (rad etildi)", ""
+  # 2. Qizlar uchun bo'lsa darhol rad etish
   if check_is_girls_only(text):
-    return False, "Qizlarga mo'ljallangan", ""
+    return False, "Qizlarga mo'ljallangan (rad etildi)", ""
+  # 3. Xonalar soni (faqat 2 xona)
   if not check_is_two_rooms(text):
     return False, "2 xonali emas", ""
+  # 4. Narxi ($350 - $550)
   price = extract_price(text)
   if price is not None and not (MIN_PRICE <= price <= MAX_PRICE):
     return False, f"Narx to'g'ri kelmadi: ${price}", ""
+  # 5. Tashkent City'ga qulay lokatsiya
   if not check_location(text):
     return False, "Lokatsiya to'g'ri kelmadi", ""
   tenant_type = get_tenant_type(text)
-  return True, f"Mos e'lon! (Narxi: ${price if price else 'Nomalum'})", tenant_type
+  return (
+      True,
+      f"Mos ijara e'loni! (Narxi: ${price if price else 'Nomalum'})",
+      tenant_type,
+  )
 
 
+# Telegram Client
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 
@@ -189,7 +240,7 @@ async def handler(event):
 
 
 async def handle_ping(request):
-  return web.Response(text="Bot 24/7 ishlab turibdi!")
+  return web.Response(text="Bot 5 ta kanalda 24/7 ishlab turibdi!")
 
 
 async def start_web_server():
@@ -208,11 +259,11 @@ async def main():
   await client.start()
   await client.send_message(
       "me",
-      "🚀 Assalomu alaykum! Botingiz Render bulutida 24/7 muvaffaqiyatli ishga"
-      " tushdi!",
+      "🚀 Assalomu alaykum! Botingiz 5 ta kanaldan faqat 2 xonali ijaralarni"
+      " qidirishni boshladi!",
   )
   await start_web_server()
-  print("Telegram kanallari 24/7 kuzatilmoqda...")
+  print("5 ta Telegram kanali 24/7 kuzatilmoqda...")
   await client.run_until_disconnected()
 
 
