@@ -206,6 +206,11 @@ async def start_web_server():
 async def main():
   print("Bulutli bot ishga tushmoqda...")
   await client.start()
+    await client.send_message(
+    "me",
+    "🚀 Assalomu alaykum! Botingiz Render bulutida 24/7 muvaffaqiyatli"
+    " ishga tushdi va yangi xonadonlarni qidirishni boshladi!",
+)
   await start_web_server()
   print("Telegram kanallari 24/7 kuzatilmoqda...")
   await client.run_until_disconnected()
