@@ -10,7 +10,7 @@ API_ID = 32448035
 API_HASH = "0f1d487ae1c82955576fd8d0a23cdec0"
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
-# 5 ta ko'rsatilgan kanal ro'yxati
+# 5 ta kuzatiladigan kanal ro'yxati
 TARGET_CHANNELS = [
     "Kvartira_Toshkent_Arenda_Makler",
     "dil85uyuz",
@@ -55,7 +55,7 @@ LOCATION_KEYWORDS = [
     "alisher navoiy",
     "алишер навои",
     "sebzor",
-    "себzor",
+    "себзор",
     "jangoh",
     "жангох",
     "ts-14",
@@ -74,7 +74,7 @@ ROOM_PATTERNS = [
     r"\b2/[-0-9/]+\b",
 ]
 
-# Sotuv e'lonlarini chiqarib tashlash (Faqat ijara kerak)
+# 1) Sotuv e'lonlari (Rad etiladi)
 SALE_KEYWORDS = [
     r"\bsotiladi\b",
     r"\bsotuv\b",
@@ -94,8 +94,8 @@ RENT_KEYWORDS = [
     r"\bсдам\b",
 ]
 
-# Qizlarga mo'ljallangan e'lonlarni chiqarib tashlash
-GIRLS_ONLY_KEYWORDS = [
+# 2) Qizlar uchun e'lonlar (Rad etiladi)
+GIRLS_KEYWORDS = [
     r"faqat\s+qizlar",
     r"talaba\s+qiz",
     r"qizlar\s+uchun",
@@ -110,6 +110,7 @@ GIRLS_ONLY_KEYWORDS = [
     r"девочкам\b",
 ]
 
+# 3) Oila uchun e'lonlar (Agar bollar qo'yilmasa, rad etiladi)
 FAMILY_KEYWORDS = [
     r"\boila(ga|viy|lar| uchun)?\b",
     r"\bsemya\b",
@@ -120,6 +121,7 @@ FAMILY_KEYWORDS = [
     r"\bzaks\b",
 ]
 
+# 4) O'g'il bolalarga ruxsat beruvchi so'zlar
 BOYS_KEYWORDS = [
     r"\b(o[\'’`]?g[\'’`]?il\s+)?bol(lar|larga|alar|alarga|aga)?\b",
     r"\byigit(lar|larga|ga)?\b",
@@ -127,10 +129,23 @@ BOYS_KEYWORDS = [
     r"\bпарн(ям|ей|ю)\b",
     r"\bдля парней\b",
     r"\bмальчик(ам|ов)\b",
+    r"\bстудент(ам|ов)?\b",
+    r"\bмужчин(ам|ами)?\b",
+]
+
+# 5) Bollarga berilmaydi degan salbiy iboralar
+NO_BOYS_KEYWORDS = [
+    r"bol(lar)?ga\s+berilmaydi",
+    r"yigit(lar)?ga\s+berilmaydi",
+    r"bol(lar)?\s+bezovta\s+qilmasin",
+    r"yigit(lar)?\s+bezovta\s+qilmasin",
+    r"парням\s+не\s+сда",
+    r"парням\s+не\s+беспокоить",
 ]
 
 
 def check_is_rental(text: str) -> bool:
+  """Faqat ijara e'lonlarini qoldiradi, sotuvlarni rad etadi"""
   t_lower = text.lower()
   has_sale = any(re.search(p, t_lower) for p in SALE_KEYWORDS)
   has_rent = any(re.search(p, t_lower) for p in RENT_KEYWORDS)
@@ -141,29 +156,32 @@ def check_is_rental(text: str) -> bool:
   return True
 
 
-def check_is_girls_only(text: str) -> bool:
+def check_boys_eligibility(text: str) -> tuple[bool, str]:
+  """Bollar qo'yilishi mumkinligini qat'iy tekshiradi"""
   t_lower = text.lower()
-  if (
-      "qizlarga emas" in t_lower
-      or "qizlarga berilmaydi" in t_lower
-      or "qizlar bezovta qilmasin" in t_lower
-  ):
-    return False
-  return any(re.search(pat, t_lower) for pat in GIRLS_ONLY_KEYWORDS)
 
+  # Qizlar uchun bo'lsa -> rad etish
+  if any(re.search(p, t_lower) for p in GIRLS_KEYWORDS):
+    return False, "Qizlar uchun (rad etildi)"
 
-def get_tenant_type(text: str) -> str:
-  t_lower = text.lower()
-  is_fam = any(re.search(p, t_lower) for p in FAMILY_KEYWORDS)
+  # Bollarga berilmaydi deyilgan bo'lsa -> rad etish
+  if any(re.search(p, t_lower) for p in NO_BOYS_KEYWORDS):
+    return False, "Bollarga berilmaydi (rad etildi)"
+
   is_boy = any(re.search(p, t_lower) for p in BOYS_KEYWORDS)
-  if is_fam and is_boy:
-    return "Oilaga yoki o'g'il bolalarga"
-  elif is_fam:
-    return "Faqat oilaga (ZAGS bilan)"
-  elif is_boy:
-    return "O'g'il bolalarga / Yigitlarga"
+  is_fam = any(re.search(p, t_lower) for p in FAMILY_KEYWORDS)
+
+  # Faqat oila uchun bo'lsa va bollarga aytilmagan bo'lsa -> rad etish
+  if is_fam and not is_boy:
+    return False, "Faqat oila uchun (rad etildi)"
+
+  # Toifani belgilash
+  if is_boy:
+    category = "👨‍💼 Aynan o'g'il bolalarga / Yigitlarga"
   else:
-    return "Hammasi uchun / Cheklovsiz"
+    category = "🤝 Umumiy / Cheklovsiz (bollar qo'yilishi mumkin)"
+
+  return True, category
 
 
 def check_is_two_rooms(text: str) -> bool:
@@ -195,27 +213,33 @@ def check_location(text: str) -> bool:
 def is_matching_apartment(text: str) -> tuple[bool, str, str]:
   if not text:
     return False, "Matn yo'q", ""
-  # 1. Sotuv e'loni bo'lsa darhol rad etish (faqat ijara kerak)
+
+  # 1. Sotuv e'loni bo'lsa rad etish
   if not check_is_rental(text):
     return False, "Sotuv e'loni (rad etildi)", ""
-  # 2. Qizlar uchun bo'lsa darhol rad etish
-  if check_is_girls_only(text):
-    return False, "Qizlarga mo'ljallangan (rad etildi)", ""
+
+  # 2. Bollar qo'yilishi mumkinligini tekshirish (oila va qizlar rad etiladi)
+  is_allowed, audience_status = check_boys_eligibility(text)
+  if not is_allowed:
+    return False, audience_status, ""
+
   # 3. Xonalar soni (faqat 2 xona)
   if not check_is_two_rooms(text):
     return False, "2 xonali emas", ""
+
   # 4. Narxi ($350 - $550)
   price = extract_price(text)
   if price is not None and not (MIN_PRICE <= price <= MAX_PRICE):
     return False, f"Narx to'g'ri kelmadi: ${price}", ""
+
   # 5. Tashkent City'ga qulay lokatsiya
   if not check_location(text):
     return False, "Lokatsiya to'g'ri kelmadi", ""
-  tenant_type = get_tenant_type(text)
+
   return (
       True,
       f"Mos ijara e'loni! (Narxi: ${price if price else 'Nomalum'})",
-      tenant_type,
+      audience_status,
   )
 
 
@@ -230,7 +254,7 @@ async def handler(event):
     channel = event.chat.username or event.chat.title
     alert = (
         f"🔔 Yangi mos kvartira topildi!\n"
-        f"👥 Kimlar uchun: {tenant_type}\n"
+        f"👤 Moslik: {tenant_type}\n"
         f"📍 Kanal: @{channel}\n"
         f"🎯 Tafsilot: {reason}\n"
         f"🔗 Havola: https://t.me/{channel}/{event.id}\n"
@@ -240,7 +264,7 @@ async def handler(event):
 
 
 async def handle_ping(request):
-  return web.Response(text="Bot 5 ta kanalda 24/7 ishlab turibdi!")
+  return web.Response(text="Bot 5 ta kanalda bollar uchun faol ishlab turibdi!")
 
 
 async def start_web_server():
@@ -259,11 +283,11 @@ async def main():
   await client.start()
   await client.send_message(
       "me",
-      "🚀 Assalomu alaykum! Botingiz 5 ta kanaldan faqat 2 xonali ijaralarni"
-      " qidirishni boshladi!",
+      "🚀 Botingiz yangilandi: Endi faqat o'g'il bolalar qo'yilishi mumkin"
+      " bo'lgan 2 xonali ijaralarni saralaydi!",
   )
   await start_web_server()
-  print("5 ta Telegram kanali 24/7 kuzatilmoqda...")
+  print("Telegram kanallari 24/7 kuzatilmoqda...")
   await client.run_until_disconnected()
 
 
